@@ -1,62 +1,37 @@
-# Offline Mesh Messenger — Phase 1
+# Offline Mesh Messenger — Phase 2 transport and relay foundation
 
-Phase 1 adds a Flutter auth/chat skeleton, encrypted local messages in SQLite, and an opt-in Android foreground-service shell. It is not yet a P2P messenger: no peer discovery, network sockets, relay engine, delivery acknowledgements, call pipeline, hotspot portal, or cloud routing is present.
+Phase 2 adds an experimental local IPv4 LAN transport, packet serialization, a deduplicated/TTL-bounded SQLite relay queue, connectivity-mode hints, and packet model tests. It does **not** implement BLE Mesh, Wi-Fi Direct, end-to-end identity/key exchange, authenticated peer handshakes, cloud WebSocket delivery, or reliable app-level acknowledgements. Treat LAN beacons as unauthenticated and use only a trusted network during development.
 
-## Run
-
-Requirements: Flutter stable, Android Studio/SDK, JDK 17, Android device or emulator.
+## Run and test
 
 ```sh
-flutter doctor
 flutter pub get
+flutter test
 flutter run
 ```
 
-Build an APK:
+## Added modules
 
-```sh
-flutter build apk --release
-```
+- `lib/mesh/packet.dart`: JSON packet model and validation; forwarding enforces path-loop, TTL, and hop bounds.
+- `lib/mesh/relay_worker.dart`: SQLite deduplication by packet ID, bounded queue, expiry, retry attempts, and receipt state updates.
+- `lib/data/local_database.dart`: schema v2 migration for the persistent relay queue.
+- `lib/transport/lan_socket_transport.dart`: experimental IPv4 UDP broadcast discovery and newline-framed TCP packet channel on ports 40445/40444.
+- `lib/transport/connectivity_switcher.dart`: connection type plus DNS reachability hint (`internet`, `localWifi`, `disconnected`). It does not configure a cloud server.
+- `lib/transport/mesh_transport_coordinator.dart`: coordinator that queues, flushes on peer discovery, relays packets, and consumes receipt packets.
 
-## Phase 1 included
+Transport APIs are not wired into the Flutter service button yet. The Android foreground service is still a native notification shell and does not host Dart sockets; Android background execution needs a dedicated Flutter engine/background plugin or native transport integration and physical-device validation. LAN discovery/listeners work only while the Dart transport is explicitly started and its isolate remains active.
 
-- Material 3 Chats / Status / Calls / Settings navigation.
-- Local username/password gate. Password verifier is derived with PBKDF2-HMAC-SHA256 and stored in Android secure storage; passwords are not stored.
-- SQLite message table tracks conversation, sender, encrypted body, timestamp, and local delivery state.
-- Each message body is encrypted using AES-256-GCM before insertion. The random AES key is saved in `flutter_secure_storage` using Android Keystore-backed storage.
-- Foreground service can be enabled from Settings; Android notification and Bluetooth-connect permissions are requested when needed.
-- Manifest declares Internet/network, Wi-Fi, location, Bluetooth, nearby Wi-Fi, foreground service, wake lock, notification, and boot permissions.
+## Packet and receipt contract
 
-## Important constraints
+`payload` must be an opaque encrypted envelope prepared for the intended recipient. The existing Phase 1 AES key is device-local and is **not** a shared end-to-end key; do not send its ciphertext to other devices expecting them to decrypt it. A future protocol must authenticate peer identities and packets, establish recipient keys, prevent replay, and sign delivery/read receipts. `delivery_receipt` and `read_receipt` packet payloads contain the original packet ID; these are only state hooks and are not authenticated in this prototype.
 
-- The displayed check mark means only that a message was saved locally (`queued`), not delivered to another device.
-- Auth is device-local. Re-entering a username/password after reinstall cannot recover data that Android removed. A later phase must implement user-triggered encrypted export/import with a recovery key.
-- The DB contains encrypted message bodies, but metadata (IDs, sender, timestamps, delivery state) remains visible. This is not end-to-end encryption or a reviewed security design.
-- Foreground service is an opt-in lifecycle shell and does not listen for sockets. Android can stop it, and force-stop always prevents automatic restart. The boot permission is declared, but no boot receiver is included.
-- Do not use this prototype for sensitive communications. Security review, Android device testing, database migrations, backup policy, and release signing remain necessary.
+States: `queued` = persisted locally (single tick); `relayed` = TCP write completed to a next hop (not proof of remote app delivery); `delivered` = app-level delivery receipt processed; `read` = read receipt processed. A blue tick is valid only after an authenticated read receipt is implemented.
 
-## Project layout
+## Limits and safety
 
-```text
-lib/
-  main.dart
-  app.dart
-  auth/
-    auth_service.dart
-    auth_screen.dart
-  chat/
-    home_screen.dart
-  core/
-    crypto_service.dart
-    uuid.dart
-  data/
-    local_database.dart
-    message_repository.dart
-android/app/src/main/
-  AndroidManifest.xml
-  kotlin/com/example/offline_mesh_messenger/
-    MainActivity.kt
-    MeshForegroundService.kt
-```
-
-Next: authenticated peer identity, key exchange, packet protocol, bounded encrypted relay queue, Wi-Fi/BLE transport adapters, and tested delivery/read receipts.
+- IPv4 LAN only; no BLE/Wi-Fi Direct or multi-interface route selection yet.
+- UDP beacon reveals the local node ID and TCP port to devices on that LAN. Use an opaque random node ID, not a username or other personal data.
+- TCP hello is a discovery handshake only, not authentication. Never treat it as proof of peer identity.
+- Payload and path sizes are bounded; queue holds at most 1,000 pending entries with seven-day expiry.
+- Connectivity classification uses DNS lookup and is advisory; it does not switch to a cloud path without a configured server.
+- Android may suspend background work; force-stop prevents automatic execution.
