@@ -1,7 +1,7 @@
 name: offline_mesh_messenger
-description: Phase 2 local-first Android messenger with experimental LAN transport.
+description: Phase 3 local-first Android messenger with experimental LAN mesh and offline APK sharing.
 publish_to: 'none'
-version: 0.3.0+3
+version: 0.4.0+4
 
 environment:
   sdk: '>=3.3.0 <4.0.0'
@@ -14,6 +14,7 @@ dependencies:
   sqflite: ^2.4.1
   path: ^1.9.0
   connectivity_plus: ^6.1.1
+  qr_flutter: ^4.1.0
   cupertino_icons: ^1.0.8
 
 dev_dependencies:

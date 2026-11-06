@@ -1,6 +1,6 @@
-# Offline Mesh Messenger — Phase 2 transport and relay foundation
+# Offline Mesh Messenger — Phase 3
 
-Phase 2 adds an experimental local IPv4 LAN transport, packet serialization, a deduplicated/TTL-bounded SQLite relay queue, connectivity-mode hints, and packet model tests. It does **not** implement BLE Mesh, Wi-Fi Direct, end-to-end identity/key exchange, authenticated peer handshakes, cloud WebSocket delivery, or reliable app-level acknowledgements. Treat LAN beacons as unauthenticated and use only a trusted network during development.
+Phase 3 adds an opt-in experimental IPv4 LAN listener toggle and an offline APK sharing screen. The share flow requests Android `LocalOnlyHotspot`, starts a small allow-listed HTTP portal on port 8080, serves only the installed application APK, and displays a QR code for its URL.
 
 ## Run and test
 
@@ -10,28 +10,27 @@ flutter test
 flutter run
 ```
 
-## Added modules
+## Offline app sharing
 
-- `lib/mesh/packet.dart`: JSON packet model and validation; forwarding enforces path-loop, TTL, and hop bounds.
-- `lib/mesh/relay_worker.dart`: SQLite deduplication by packet ID, bounded queue, expiry, retry attempts, and receipt state updates.
-- `lib/data/local_database.dart`: schema v2 migration for the persistent relay queue.
-- `lib/transport/lan_socket_transport.dart`: experimental IPv4 UDP broadcast discovery and newline-framed TCP packet channel on ports 40445/40444.
-- `lib/transport/connectivity_switcher.dart`: connection type plus DNS reachability hint (`internet`, `localWifi`, `disconnected`). It does not configure a cloud server.
-- `lib/transport/mesh_transport_coordinator.dart`: coordinator that queues, flushes on peer discovery, relays packets, and consumes receipt packets.
+1. Open Settings → **Share App Offline**.
+2. Start sharing and accept the system's nearby Wi-Fi permission request if prompted.
+3. Connect the receiving device to the SSID/password shown in the app.
+4. Scan the displayed QR code in the receiving device's browser and download the APK.
+5. Stop sharing when finished. Android may require the receiving user to explicitly allow APK installation from their browser/files app.
 
-Transport APIs are not wired into the Flutter service button yet. The Android foreground service is still a native notification shell and does not host Dart sockets; Android background execution needs a dedicated Flutter engine/background plugin or native transport integration and physical-device validation. LAN discovery/listeners work only while the Dart transport is explicitly started and its isolate remains active.
+The portal accepts only `GET /` and `GET /app.apk`; it does not accept a filesystem path from a request. It serves the installed APK found through Android `PackageManager`. The HTTP portal is unauthenticated on the local network: enable it only on a network you control and stop it after sharing.
 
-## Packet and receipt contract
+## Limits
 
-`payload` must be an opaque encrypted envelope prepared for the intended recipient. The existing Phase 1 AES key is device-local and is **not** a shared end-to-end key; do not send its ciphertext to other devices expecting them to decrypt it. A future protocol must authenticate peer identities and packets, establish recipient keys, prevent replay, and sign delivery/read receipts. `delivery_receipt` and `read_receipt` packet payloads contain the original packet ID; these are only state hooks and are not authenticated in this prototype.
+- `WifiManager.LocalOnlyHotspot` creates a temporary local-only Wi-Fi network; it is not the regular internet-tethering hotspot. Availability/configuration varies by Android version and OEM. Android does not offer ordinary apps a reliable portable API for hotspot connected-client counts, so the UI reports that count as unavailable rather than inventing it.
+- The portal address is selected from local IPv4 interfaces with an AOSP `192.168.49.1` fallback; verify the URL on each target device. The host server binds all IPv4 interfaces while sharing is active.
+- The Settings mesh toggle starts the existing Dart TCP/UDP transport in the app isolate and starts the notification service. The notification service does not host a Flutter isolate, so Android process termination will end Dart sockets; force-stop prevents restart. This is not a guarantee of always-on networking.
+- LAN beacons/hello frames remain unauthenticated. Do not treat a discovered peer or a TCP write as proof of delivery. No BLE/Wi-Fi Direct or true multi-hop security is added in this phase.
 
-States: `queued` = persisted locally (single tick); `relayed` = TCP write completed to a next hop (not proof of remote app delivery); `delivered` = app-level delivery receipt processed; `read` = read receipt processed. A blue tick is valid only after an authenticated read receipt is implemented.
+## Added files
 
-## Limits and safety
-
-- IPv4 LAN only; no BLE/Wi-Fi Direct or multi-interface route selection yet.
-- UDP beacon reveals the local node ID and TCP port to devices on that LAN. Use an opaque random node ID, not a username or other personal data.
-- TCP hello is a discovery handshake only, not authentication. Never treat it as proof of peer identity.
-- Payload and path sizes are bounded; queue holds at most 1,000 pending entries with seven-day expiry.
-- Connectivity classification uses DNS lookup and is advisory; it does not switch to a cloud path without a configured server.
-- Android may suspend background work; force-stop prevents automatic execution.
+- `lib/mesh/mesh_service.dart` — starts/stops the foreground notification shell, connectivity monitor, and LAN transport coordinator.
+- `lib/share/portal_server.dart` — allow-listed local HTTP APK portal.
+- `lib/share/share_screen.dart` — hotspot control, QR, and sharing instructions.
+- `lib/chat/home_screen.dart` — Settings integration.
+- `android/app/src/main/kotlin/com/example/offline_mesh_messenger/MainActivity.kt` — `LocalOnlyHotspot` and installed APK path method-channel endpoints.
