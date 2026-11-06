@@ -1,8 +1,8 @@
-# Offline Mesh Messenger — Phase 3
+# Offline Mesh Messenger — Phase 4 foundation
 
-Phase 3 adds an opt-in experimental IPv4 LAN listener toggle and an offline APK sharing screen. The share flow requests Android `LocalOnlyHotspot`, starts a small allow-listed HTTP portal on port 8080, serves only the installed application APK, and displays a QR code for its URL.
+Phase 4 polishes the Material 3 Chats / Status / Calls / Settings UI, adds local privacy preferences and a block-list UI, and introduces a WebRTC media/call UI foundation configured with an empty ICE-server list for same-LAN host candidates. Camera and microphone permission declarations are included. Phase 1–3 local chat, LAN experiment, and APK-share screen remain.
 
-## Run and test
+## Run
 
 ```sh
 flutter pub get
@@ -10,27 +10,19 @@ flutter test
 flutter run
 ```
 
-## Offline app sharing
+Release APK: `flutter build apk --release` (configure signing for distribution).
 
-1. Open Settings → **Share App Offline**.
-2. Start sharing and accept the system's nearby Wi-Fi permission request if prompted.
-3. Connect the receiving device to the SSID/password shown in the app.
-4. Scan the displayed QR code in the receiving device's browser and download the APK.
-5. Stop sharing when finished. Android may require the receiving user to explicitly allow APK installation from their browser/files app.
+## Calling status and important limitation
 
-The portal accepts only `GET /` and `GET /app.apk`; it does not accept a filesystem path from a request. It serves the installed APK found through Android `PackageManager`. The HTTP portal is unauthenticated on the local network: enable it only on a network you control and stop it after sharing.
+`lib/calls/webrtc_call_engine.dart` provides a WebRTC peer/media engine and a `CallSignaling` integration interface. `lib/calls/call_screen.dart` provides audio/video call UI, local controls, and an incoming-call screen presentation primitive. No concrete authenticated signaling adapter is shipped, so the UI intentionally refuses to start a cross-device call until one is supplied. Offers, answers, and ICE candidates must use an authenticated, encrypted local channel with peer identity verification; the existing UDP beacon/TCP hello are unauthenticated and must not be used for call signaling. Empty `iceServers` avoids external STUN/TURN, but host ICE candidates only work when direct LAN routing/firewall policy allows it. Incoming calls are not wired to Android full-screen notifications or background call service.
 
-## Limits
+## UI and privacy
 
-- `WifiManager.LocalOnlyHotspot` creates a temporary local-only Wi-Fi network; it is not the regular internet-tethering hotspot. Availability/configuration varies by Android version and OEM. Android does not offer ordinary apps a reliable portable API for hotspot connected-client counts, so the UI reports that count as unavailable rather than inventing it.
-- The portal address is selected from local IPv4 interfaces with an AOSP `192.168.49.1` fallback; verify the URL on each target device. The host server binds all IPv4 interfaces while sharing is active.
-- The Settings mesh toggle starts the existing Dart TCP/UDP transport in the app isolate and starts the notification service. The notification service does not host a Flutter isolate, so Android process termination will end Dart sockets; force-stop prevents restart. This is not a guarantee of always-on networking.
-- LAN beacons/hello frames remain unauthenticated. Do not treat a discovered peer or a TCP write as proof of delivery. No BLE/Wi-Fi Direct or true multi-hop security is added in this phase.
+- Chats, Status, Calls and Settings use a consistent Material 3 navigation and status language that does not claim delivery where none occurred.
+- Status screen communicates that peer synchronization is not implemented.
+- Settings stores local read-receipt preference and blocked peer IDs using `shared_preferences`; these preferences are not yet enforced by transport filtering.
+- Share App Offline continues to open the Phase 3 hotspot/portal flow.
 
-## Added files
+## Android/device validation
 
-- `lib/mesh/mesh_service.dart` — starts/stops the foreground notification shell, connectivity monitor, and LAN transport coordinator.
-- `lib/share/portal_server.dart` — allow-listed local HTTP APK portal.
-- `lib/share/share_screen.dart` — hotspot control, QR, and sharing instructions.
-- `lib/chat/home_screen.dart` — Settings integration.
-- `android/app/src/main/kotlin/com/example/offline_mesh_messenger/MainActivity.kt` — `LocalOnlyHotspot` and installed APK path method-channel endpoints.
+This update has not been built or tested on physical devices in this environment. Verify `flutter pub get`, `flutter analyze`, `flutter test`, and Android builds with the Flutter/Android SDK versions in use. Test WebRTC media permission prompts and LAN ICE candidate exchange on at least two devices. The Android foreground service does not host the Dart engine and cannot guarantee process survival; force-stop prevents restart. Do not describe this project as production-ready until signaling authentication, receipt validation, privacy enforcement, background call notifications, device testing, and security review are complete.
