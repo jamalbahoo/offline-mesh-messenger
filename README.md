@@ -1,61 +1,62 @@
-# Offline Mesh Messenger
+# Offline Mesh Messenger — Phase 1
 
-A Flutter/Android local-first messenger starter. This repository now includes a WhatsApp-inspired Material 3 UI, AES-GCM encrypted local demo message storage, and an Android foreground-service lifecycle shell. It is **not yet a complete P2P messenger**: mesh discovery, Wi-Fi/BLE data transports, relay persistence, cloud routing, calls, APK hosting, account recovery, and delivery receipts are not implemented. The UI explicitly identifies unavailable features rather than fabricating peer delivery.
+Phase 1 adds a Flutter auth/chat skeleton, encrypted local messages in SQLite, and an opt-in Android foreground-service shell. It is not yet a P2P messenger: no peer discovery, network sockets, relay engine, delivery acknowledgements, call pipeline, hotspot portal, or cloud routing is present.
 
-## Implemented
+## Run
 
-- Chats, Status, Calls, and Settings navigation.
-- Local demo chat messages encrypted with AES-256-GCM; the encryption key is stored using Android Keystore-backed `flutter_secure_storage`.
-- Android foreground service started while the app activity launches, with an ongoing "Offline Mesh Network Active" notification and a notification channel.
-- Android manifest declares relevant Wi-Fi, Bluetooth/nearby, network, location, notification, wake-lock, and foreground service permissions.
-- Gradle project configuration for Flutter Android builds.
+Requirements: Flutter stable, Android Studio/SDK, JDK 17, Android device or emulator.
 
-The service is only a lifecycle shell: it does not listen on sockets or claim that a mesh link is active. Android may stop background work, and users can force-stop the app; no normal app can guarantee service execution after force-stop. Starting services at boot and hotspot control are restricted by Android version and device policy, so they require dedicated compatibility work and user consent.
+```sh
+flutter doctor
+flutter pub get
+flutter run
+```
 
-## Run on Android
+Build an APK:
 
-1. Install Flutter stable, Android Studio/Android SDK (API 35 recommended), and JDK 17. Run `flutter doctor` and accept Android SDK licenses.
-2. The Android Gradle project files are checked in. Flutter creates `android/local.properties` for the local SDK paths as part of normal setup; if needed run:
+```sh
+flutter build apk --release
+```
 
-   ```sh
-   flutter create --platforms=android --project-name offline_mesh_messenger .
-   ```
+## Phase 1 included
 
-   Choose to keep existing files, or restore the checked-in manifest, service, and Gradle configuration after generation.
-3. Install dependencies and run:
+- Material 3 Chats / Status / Calls / Settings navigation.
+- Local username/password gate. Password verifier is derived with PBKDF2-HMAC-SHA256 and stored in Android secure storage; passwords are not stored.
+- SQLite message table tracks conversation, sender, encrypted body, timestamp, and local delivery state.
+- Each message body is encrypted using AES-256-GCM before insertion. The random AES key is saved in `flutter_secure_storage` using Android Keystore-backed storage.
+- Foreground service can be enabled from Settings; Android notification and Bluetooth-connect permissions are requested when needed.
+- Manifest declares Internet/network, Wi-Fi, location, Bluetooth, nearby Wi-Fi, foreground service, wake lock, notification, and boot permissions.
 
-   ```sh
-   flutter pub get
-   flutter run
-   ```
+## Important constraints
 
-4. Build a release APK after configuring signing credentials:
-
-   ```sh
-   flutter build apk --release
-   ```
-
-The app requests notification permission on Android 13+ when opened. Wi-Fi/Bluetooth and location permissions are declared but not requested until their corresponding user-facing transport features exist.
-
-## Security and recovery notes
-
-- Local message encryption is not end-to-end encryption and does not provide relay-safe encrypted envelopes.
-- Secure storage is device-bound; uninstalling, clearing app data, losing the Android Keystore, or changing devices can make messages unrecoverable.
-- Username/password account creation, portable recovery exports, encrypted media storage, and a production database migration strategy are not included. Do not use this prototype for sensitive or production communications.
-- A future recovery feature must use an explicit encrypted export/import backup flow and a user-held recovery secret; simply re-entering credentials cannot restore data that was deleted with the app.
-
-## Next implementation milestones
-
-1. Add authenticated peer identity, key establishment, AEAD packet format, nonce/replay protection, hop/TTL limits, and encrypted persistent relay queue.
-2. Implement Wi-Fi LAN/Wi-Fi Direct and BLE discovery/transport adapters with explicit runtime permission flows and interoperability tests on supported devices.
-3. Add delivery/read acknowledgements, deduplicated store-and-forward routing, and bounded storage/expiry policies.
-4. Add notifications/call UI, local WebRTC signaling/media, and a tested background service that owns active transports only when enabled by the user.
-5. Implement a supported hotspot-sharing flow and a download server that serves only a verified user-selected APK.
-6. Add encrypted backup/restore and privacy controls, then perform threat modeling, device testing, and release signing.
+- The displayed check mark means only that a message was saved locally (`queued`), not delivered to another device.
+- Auth is device-local. Re-entering a username/password after reinstall cannot recover data that Android removed. A later phase must implement user-triggered encrypted export/import with a recovery key.
+- The DB contains encrypted message bodies, but metadata (IDs, sender, timestamps, delivery state) remains visible. This is not end-to-end encryption or a reviewed security design.
+- Foreground service is an opt-in lifecycle shell and does not listen for sockets. Android can stop it, and force-stop always prevents automatic restart. The boot permission is declared, but no boot receiver is included.
+- Do not use this prototype for sensitive communications. Security review, Android device testing, database migrations, backup policy, and release signing remain necessary.
 
 ## Project layout
 
-- `lib/main.dart` — Flutter UI and encrypted local chat prototype.
-- `android/app/src/main/AndroidManifest.xml` — Android permissions, activity, and service declarations.
-- `android/app/src/main/kotlin/.../MeshForegroundService.kt` — ongoing notification service shell.
-- `android/app/src/main/kotlin/.../MainActivity.kt` — Flutter entry point and service startup.
+```text
+lib/
+  main.dart
+  app.dart
+  auth/
+    auth_service.dart
+    auth_screen.dart
+  chat/
+    home_screen.dart
+  core/
+    crypto_service.dart
+    uuid.dart
+  data/
+    local_database.dart
+    message_repository.dart
+android/app/src/main/
+  AndroidManifest.xml
+  kotlin/com/example/offline_mesh_messenger/
+    MainActivity.kt
+    MeshForegroundService.kt
+```
+
+Next: authenticated peer identity, key exchange, packet protocol, bounded encrypted relay queue, Wi-Fi/BLE transport adapters, and tested delivery/read receipts.
